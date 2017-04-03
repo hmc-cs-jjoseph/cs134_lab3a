@@ -10,22 +10,18 @@
 #include <fcntl.h>
 #include <string.h>
 
-typedef union __read_data_4_t {
-	int32_t num;
-	char bytes[4];
-} read_data_4_t;
-
-typedef union __read_data_2_t {
-	int16_t num;
-	char bytes[2];
-} read_data_2_t;
+typedef union __read_data_t {
+	int16_t int16;
+	int32_t int32;
+	int64_t int64;
+	char bytes[4096];
+} read_data_t;
 
 void check_rc(int expected, int actual, char *msg);
 
-int32_t get_val_4_byte(int fd, read_data_4_t *buff, int offset, char *msg);
+void get_val(int fd, read_data_t *buff, int size, int offset, char *msg);
 
-int16_t get_val_2_byte(int fd, read_data_2_t *buff, int offset, char *msg);
-
+int count_bits(char* bitmap, int bitmap_size_bytes);
 
 int main(int argc, char **argv) {
 	if(argc < 2) {
@@ -38,10 +34,8 @@ int main(int argc, char **argv) {
 		perror("Couldn't open input filesystem image");
 		exit(1);
 	}
-	read_data_4_t data_4;
-	read_data_2_t data_2;
-	memset(&data_4.bytes, 0, 4);
-	memset(&data_2.bytes, 0, 2);
+	read_data_t data;
+	memset(&data.bytes, 0, 1024);
 
 
 	/* SUPERBLOCK */
@@ -50,38 +44,47 @@ int main(int argc, char **argv) {
 	fprintf(stdout, "SUPERBLOCK,");
 	/* block count */
 	offset = 4;
-	int block_count = get_val_4_byte(fd, &data_4, superblock_base + offset, "Failed to read block count data\n");
+	get_val(fd, &data, 4, superblock_base + offset, "Failed to read block count data\n");
+	int block_count = data.int32;
 	fprintf(stdout, "%d,", block_count);
 	/* inode count */
 	offset = 0;
-	int inode_count = get_val_4_byte(fd, &data_4, superblock_base + offset, "Failed to read inode count data\n");
+	get_val(fd, &data, 4,  superblock_base + offset, "Failed to read inode count data\n");
+	int inode_count = data.int32;
 	fprintf(stdout, "%d,", inode_count);
 	/* block size */
 	offset = 24;
-	int block_size = 1024 << get_val_4_byte(fd, &data_4, superblock_base + offset, "Failed to read block size data\n");
+	get_val(fd, &data, 4, superblock_base + offset, "Failed to read block size data\n");
+	int block_size = 1024 << data.int32;
 	fprintf(stdout, "%d,", block_size);
 	/* inode size */
 	offset = 88;
-	int inode_size = get_val_2_byte(fd, &data_2, superblock_base + offset, "Failed to read inode size data\n");
+	get_val(fd, &data, 2, superblock_base + offset, "Failed to read inode size data\n");
+	int inode_size = data.int16;
 	fprintf(stdout, "%d,", inode_size);
 	/* blocks per group */
 	offset = 32;
-	int blocks_per_group = get_val_4_byte(fd, &data_4, superblock_base + offset, "Failed to read blocks per group data\n");
+	get_val(fd, &data, 4,  superblock_base + offset, "Failed to read blocks per group data\n");
+	int blocks_per_group = data.int32;
 	fprintf(stdout, "%d,", blocks_per_group);
 	/* inodes per group */
 	offset = 40;
-	int inodes_per_group = get_val_4_byte(fd, &data_4, superblock_base + offset, "Failed to read inodes per group data\n");
+	get_val(fd, &data, 4,  superblock_base + offset, "Failed to read inodes per group data\n");
+	int inodes_per_group = data.int32;
 	fprintf(stdout, "%d,", inodes_per_group);
 	/* first free inode */
 	offset = 84;
-	int first_free_inode = get_val_4_byte(fd, &data_4, superblock_base + offset, "Failed to read first free inode data\n");
+	get_val(fd, &data, 4, superblock_base + offset, "Failed to read first free inode data\n");
+	int first_free_inode = data.int32;
 	fprintf(stdout, "%d\n", first_free_inode);
 
 	/* GROUP SUMMARY */
 	int group_descriptor_table_base = superblock_base + block_size;
 	int group_descriptor_base;
 	int group_count = block_count/blocks_per_group;
-	fprintf(stdout, "%d\n", group_count);
+	if(block_count % blocks_per_group != 0) {
+		group_count = group_count + 1;
+	}
 	int group_descriptor_size = 32;
 	for(int i = 0; i < group_count; ++i) {
 		fprintf(stdout, "GROUP,");
@@ -89,21 +92,19 @@ int main(int argc, char **argv) {
 		/* group number */
 		fprintf(stdout, "%d,", i);
 		/* total blocks in this group */
+		offset = 0;
+		get_val(fd, &data, 4, group_descriptor_base + offset, "Failed to read block ID of group block bitmap\n");
+		int block_bitmap_bid = data.int32;
+		int block_bitmap_bytes_size = blocks_per_group/8;
+		get_val(fd, &data, block_bitmap_bytes_size, block_bitmap_bid*block_size, "Failed to read block bitmap\n");
+		int used_blocks = count_bits(&data.bytes, block_bitmap_bytes_size);
+		fprintf(stdout, "\nblock_bitmap_bid = %d\n", block_bitmap_bid);
 		fprintf(stdout, "%d,", blocks_per_group);
 		/* total inodes in this group */
 		fprintf(stdout, "%d,", inodes_per_group);
 		
 		fprintf(stdout, "\n");
 	}
-
-
-
-
-
-	
-
-
-
 
 
 	if(close(fd) < 0) {
@@ -121,14 +122,20 @@ void check_rc(int expected, int actual, char *msg) {
 	}
 }
 
-int32_t get_val_4_byte(int fd, read_data_4_t *buff, int offset, char *msg) {
-	int nbytes = pread(fd, buff->bytes, 4, offset);
-	check_rc(4, nbytes, msg);
-	return buff->num;
+void get_val(int fd, read_data_t *buff, int size, int offset, char *msg) {
+	int nbytes = pread(fd, buff->bytes, size, offset);
+	check_rc(size, nbytes, msg);
 }
 
-int16_t get_val_2_byte(int fd, read_data_2_t *buff, int offset, char *msg) {
-	int nbytes = pread(fd, buff->bytes, 2, offset);
-	check_rc(2, nbytes, msg);
-	return buff->num;
+
+int count_bits(char* bitmap, int bitmap_size_bytes) {
+	int counter = 0;
+	for(int i = 0; i < bitmap_size_bytes; ++i) {
+		char bitmap_byte = bitmap[i];
+		while(bitmap_byte) {
+			counter += bitmap_byte % 2;
+			bitmap_byte = bitmap_byte >> 1;
+		}
+	}
+	return counter;
 }
