@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <string.h>
+#include <time.h>
 
 typedef union __read_data_t {
 	int16_t int16;
@@ -91,19 +92,182 @@ int main(int argc, char **argv) {
 		group_descriptor_base = group_descriptor_table_base + i*group_descriptor_size;
 		/* group number */
 		fprintf(stdout, "%d,", i);
+
 		/* total blocks in this group */
+		int blocks_in_this_group;
+		if(i == group_count - 1) {
+			blocks_in_this_group = block_count % blocks_per_group;
+		} else {
+			blocks_in_this_group = blocks_per_group;
+		}
+		fprintf(stdout, "%d,", blocks_in_this_group);
+
+		/* total inodes in this group */
+		fprintf(stdout,"%d,", inodes_per_group);
+
+		/* free blocks in this group */
+		offset = 12;
+		get_val(fd, &data, 2, group_descriptor_base + offset, "Failed to read number of free blocks in group\n");
+		int free_blocks_count = data.int16;
+		fprintf(stdout, "%d,", free_blocks_count);
+
+		/* free inodes in this group */
+		offset = 14;
+		get_val(fd, &data, 2, group_descriptor_base + offset, "Failed to read number of free inodes in group\n");
+		int free_inodes_count = data.int16;
+		fprintf(stdout, "%d,", free_inodes_count);
+		
+		/* block id of free block bitmap */
 		offset = 0;
 		get_val(fd, &data, 4, group_descriptor_base + offset, "Failed to read block ID of group block bitmap\n");
 		int block_bitmap_bid = data.int32;
-		int block_bitmap_bytes_size = blocks_per_group/8;
-		get_val(fd, &data, block_bitmap_bytes_size, block_bitmap_bid*block_size, "Failed to read block bitmap\n");
-		int used_blocks = count_bits(&data.bytes, block_bitmap_bytes_size);
-		fprintf(stdout, "\nblock_bitmap_bid = %d\n", block_bitmap_bid);
-		fprintf(stdout, "%d,", blocks_per_group);
-		/* total inodes in this group */
-		fprintf(stdout, "%d,", inodes_per_group);
+		fprintf(stdout, "%d,", block_bitmap_bid);
+
+		/* block id of free inode bitmap */
+		offset = 4;
+		get_val(fd, &data, 4, group_descriptor_base + offset, "Failed to read block ID of group inode bitmap\n");
+		int inode_bitmap_bid = data.int32;
+		fprintf(stdout, "%d,", inode_bitmap_bid);
+
+		/* block id of inode table */
+		offset = 8;
+		get_val(fd, &data, 4, group_descriptor_base + offset, "Failed to read block ID of group inode table\n");
+		int inode_table_bid = data.int32;
+		fprintf(stdout, "%d\n", inode_table_bid);
 		
-		fprintf(stdout, "\n");
+
+		/* FREE BLOCK ENTRIES */
+		int block_bitmap_bytes_size = blocks_in_this_group/8 + (blocks_in_this_group % 8 != 0);
+		get_val(fd, &data, block_bitmap_bytes_size, block_bitmap_bid*block_size, "Failed to read block bitmap\n");
+		int counter = 0;
+		for(int i = 0; i < block_bitmap_bytes_size; ++i) {
+			unsigned char bitmap_byte = data.bytes[i];
+			for(int j = 0; j < 8; ++j) {
+				counter ++;
+				if(bitmap_byte % 2 == 0) {
+					fprintf(stdout, "BFREE,%d\n", counter);
+				}
+				bitmap_byte /= 2;
+			}
+		}
+
+		/* FREE INODE ENTRIES */
+		int inode_bitmap_bytes_size = inodes_per_group/8 + (inodes_per_group % 8 != 0);
+		get_val(fd, &data, inode_bitmap_bytes_size, inode_bitmap_bid*block_size, "Failed to read block bitmap\n");
+		counter = 0;
+		for(int i = 0; i < inode_bitmap_bytes_size; ++i) {
+			unsigned char bitmap_byte = data.bytes[i];
+			for(int j = 0; j < 8; ++j) {
+				counter ++;
+				if(bitmap_byte % 2 == 0) {
+					fprintf(stdout, "IFREE,%d\n", counter);
+				}
+				bitmap_byte /= 2;
+			}
+		}
+
+		/* INODE SUMMARY */
+		for(int i = 0; i < inodes_per_group; ++ i) {
+			int inode_base = inode_table_bid*block_size + i*inode_size;
+
+			/* mode and link count */
+			offset = 0;
+			get_val(fd, &data, 2, inode_base + offset, "Failed to read inode mode\n");
+			int inode_mode = data.int16;
+			offset = 26;
+			get_val(fd, &data, 2, inode_base + offset, "Failed to read inode link count\n");
+			int link_count = data.int16;
+
+			if(link_count && inode_mode) {
+				fprintf(stdout, "INODE,");
+
+				/* inode number */
+				fprintf(stdout, "%d,", i+1);
+
+				/* file type */
+				char file_type;
+				int file_format_bitmask = 0xF000;
+				int mode_type = inode_mode & file_format_bitmask;
+				if(mode_type == 0x8000) {
+					file_type = 'f';
+				} else if(mode_type == 0x4000) {
+					file_type = 'd';
+				} else if(mode_type == 0xA000) {
+					file_type = 's';
+				} else {
+					file_type = '?';
+				}
+				fprintf(stdout, "%c,", file_type);
+
+				/* mode */
+				fprintf(stdout, "%o,", inode_mode & 0xFFF);
+
+				/* owner */
+				offset = 2;
+				get_val(fd, &data, 2, inode_base + offset, "Failed to read inode owner\n");
+				int owner = data.int16;
+				fprintf(stdout, "%d,", owner);
+
+				/* group */
+				offset = 24;
+				get_val(fd, &data, 2, inode_base + offset, "Failed to read inode owner\n");
+				int gid = data.int16;
+				fprintf(stdout, "%d,", gid);
+
+				/* link count */
+				fprintf(stdout, "%d,", link_count);
+
+				/* creation time */
+				offset = 12;
+				get_val(fd, &data, 4, inode_base + offset, "Failed to read inode owner\n");
+				time_t creation_secs_since_epoch = data.int32;
+				struct tm *creation_time = gmtime(&creation_secs_since_epoch);
+				char timebuff[19];
+				strftime(&timebuff, 19, "%D %T,", creation_time);
+				fprintf(stdout, "%s", timebuff);
+
+				/* modification time */
+				offset = 16;
+				get_val(fd, &data, 4, inode_base + offset, "Failed to read inode owner\n");
+				time_t mod_secs_since_epoch = data.int32;
+				struct tm *mod_time = gmtime(&mod_secs_since_epoch);
+				strftime(&timebuff, 19, "%D %T,", mod_time);
+				fprintf(stdout, "%s", timebuff);
+
+				/* access time */
+				offset = 8;
+				get_val(fd, &data, 4, inode_base + offset, "Failed to read inode owner\n");
+				time_t access_secs_since_epoch = data.int32;
+				struct tm *access_time = gmtime(&access_secs_since_epoch);
+				strftime(&timebuff, 19, "%D %T,", access_time);
+				fprintf(stdout, "%s", timebuff);
+
+				/* size */
+				offset = 4;
+				get_val(fd, &data, 4, inode_base + offset, "Failed to read inode owner\n");
+				int file_size = data.int32;
+				fprintf(stdout, "%d,", file_size);
+
+				/* number of blocks */
+				offset = 28;
+				get_val(fd, &data, 4, inode_base + offset, "Failed to read inode owner\n");
+				int number_of_blocks = data.int32;
+				fprintf(stdout, "%d,", number_of_blocks);
+				
+
+
+
+
+
+				fprintf(stdout, "\n");
+			}
+
+
+			/* inode number */
+
+
+
+		}
 	}
 
 
