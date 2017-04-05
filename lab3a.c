@@ -265,7 +265,7 @@ int main(int argc, char **argv) {
 					if(block_addresses[j] == 0) {
 						break;
 					}
-					fprintf(stdout, "%d", block_addresses[i]);
+					fprintf(stdout, "%d", block_addresses[j]);
 					if(j != 14) {
 						fprintf(stdout, ",");
 					} else {
@@ -349,8 +349,8 @@ int main(int argc, char **argv) {
 						int indirect_block_address = block_addresses[12+k];
 						if(indirect_block_address != 0) {
 							int indirect_block_base = indirect_block_address*block_size;
-							for(int j = 0; j < block_size/4; ++j) {
-								int offset = j*4;
+							for(int m = 0; m < block_size/4; ++m) {
+								int offset = m*4;
 								get_val(fd, &data, 4, indirect_block_base + offset, "Failed to read indirect block pointer\n");
 								int block_pointer = data.int32;
 								if(block_pointer != 0) {
@@ -363,7 +363,7 @@ int main(int argc, char **argv) {
 									fprintf(stdout, "%d,", 1);
 
 									/* file offset */
-									fprintf(stdout, "%d,", 12+j);
+									fprintf(stdout, "%d,", 12+m);
 
 									/* block number of the indirect block being scanned */
 									fprintf(stdout, "%d,", indirect_block_address);

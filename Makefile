@@ -1,3 +1,7 @@
+# Jesse Joseph
+# 040161840
+# jjoseph@hmc.edu
+
 CXX=gcc -std=c11
 CXX_WARNINGS=-Wall -Wextra -Wpedantic
 
@@ -12,3 +16,5 @@ test: lab3a.c
 clean:
 	-rm lab3a
 
+dist:
+	tar -czvf lab3a-040161840.tar.gz lab3a.c Makefile README
