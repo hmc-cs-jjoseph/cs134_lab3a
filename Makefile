@@ -8,3 +8,7 @@ lab3a: lab3a.c
 test: lab3a.c
 	make lab3a
 	./lab3a trivial.img
+
+clean:
+	-rm lab3a
+

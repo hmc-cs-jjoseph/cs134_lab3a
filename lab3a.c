@@ -12,6 +12,7 @@
 #include <time.h>
 
 typedef union __read_data_t {
+	int8_t int8;
 	int16_t int16;
 	int32_t int32;
 	int64_t int64;
@@ -223,7 +224,7 @@ int main(int argc, char **argv) {
 				time_t creation_secs_since_epoch = data.int32;
 				struct tm *creation_time = gmtime(&creation_secs_since_epoch);
 				char timebuff[19];
-				strftime(&timebuff, 19, "%D %T,", creation_time);
+				strftime(timebuff, 19, "%D %T,", creation_time);
 				fprintf(stdout, "%s", timebuff);
 
 				/* modification time */
@@ -231,7 +232,7 @@ int main(int argc, char **argv) {
 				get_val(fd, &data, 4, inode_base + offset, "Failed to read inode owner\n");
 				time_t mod_secs_since_epoch = data.int32;
 				struct tm *mod_time = gmtime(&mod_secs_since_epoch);
-				strftime(&timebuff, 19, "%D %T,", mod_time);
+				strftime(timebuff, 19, "%D %T,", mod_time);
 				fprintf(stdout, "%s", timebuff);
 
 				/* access time */
@@ -239,7 +240,7 @@ int main(int argc, char **argv) {
 				get_val(fd, &data, 4, inode_base + offset, "Failed to read inode owner\n");
 				time_t access_secs_since_epoch = data.int32;
 				struct tm *access_time = gmtime(&access_secs_since_epoch);
-				strftime(&timebuff, 19, "%D %T,", access_time);
+				strftime(timebuff, 19, "%D %T,", access_time);
 				fprintf(stdout, "%s", timebuff);
 
 				/* size */
@@ -253,20 +254,128 @@ int main(int argc, char **argv) {
 				get_val(fd, &data, 4, inode_base + offset, "Failed to read inode owner\n");
 				int number_of_blocks = data.int32;
 				fprintf(stdout, "%d,", number_of_blocks);
+
+				/* block addresses */
+				int block_addresses[15];
+				int j;
+				for(j = 0; j < 15; ++j) {
+					offset = 40 + j*4;
+					get_val(fd, &data, 4, inode_base + offset, "Failed to read inode block address\n");
+					block_addresses[j] = data.int32;
+					if(block_addresses[j] == 0) {
+						break;
+					}
+					fprintf(stdout, "%d", block_addresses[i]);
+					if(j != 14) {
+						fprintf(stdout, ",");
+					} else {
+						fprintf(stdout, "\n");
+					}
+				}
+				/* according to the ext2 docs, after the first 0 is encountered,
+				 * all the following block addresses are invalid
+				 */
+				for(; j < 15; ++j) {
+					if(j != 14) {
+						fprintf(stdout, "0,");
+					} else {
+						fprintf(stdout, "0\n");
+					}
+				}
 				
+				/* DIRECTORY ENTRIES */
+				if(file_type == 'd') {
+					int block_address_base;
+					int dirent_base;
+					int inode_number;
+					int rec_length;
+					for(int j = 0; j < 12; ++j) {
+						block_address_base = block_addresses[j]*block_size;
+						dirent_base = 0;
+						offset = 0;
+						get_val(fd, &data, 4, block_address_base + dirent_base + offset, "Failed to read dirent inode number\n");
+						inode_number = data.int32;
+						/* record length */
+						offset = 4;
+						get_val(fd, &data, 2, block_address_base + dirent_base + offset, "Failed to read dirent record length\n");
+						rec_length = data.int16;
+						while(dirent_base < block_size && rec_length != 0) {
+							offset = 0;
+							get_val(fd, &data, 4, block_address_base + dirent_base + offset, "Failed to read dirent inode number\n");
+							inode_number = data.int32;
 
+							/* record length */
+							offset = 4;
+							get_val(fd, &data, 2, block_address_base + dirent_base + offset, "Failed to read dirent record length\n");
+							rec_length = data.int16;
 
+							/* name length */
+							offset = 6;
+							get_val(fd, &data, 1, block_address_base + dirent_base + offset, "Failed to read dirent name length\n");
+							int name_len = data.int8;
 
+							if(inode_number != 0) {
+								fprintf(stdout, "DIRENT,");
+								
+								/* parent inode number */
+								fprintf(stdout, "%d,", i+1);
 
+								/* byte offset of this entry */
+								fprintf(stdout, "%d,", dirent_base);
 
-				fprintf(stdout, "\n");
+								/* inode number of referenced file */
+								fprintf(stdout, "%d,", inode_number);
+								
+								/* record length */
+								fprintf(stdout, "%d,", rec_length);
+
+								/* name length */
+								fprintf(stdout, "%d,", name_len);
+
+								/* name */
+								memset(&data.bytes, 0, 1024);
+								offset = 8;
+								get_val(fd, &data, name_len, block_address_base + dirent_base + offset, "Failed to read dirent file name\n");
+								fprintf(stdout, "'%s'\n", data.bytes);
+							}
+							dirent_base += rec_length;
+						}
+					}
+				}
+				/* INDIRECT REFERENCES */
+				if(file_type == 'f' || file_type == 'd') {
+					for(int k = 0; k < 3; ++k){
+						/* singly indirect */
+						int indirect_block_address = block_addresses[12+k];
+						if(indirect_block_address != 0) {
+							int indirect_block_base = indirect_block_address*block_size;
+							for(int j = 0; j < block_size/4; ++j) {
+								int offset = j*4;
+								get_val(fd, &data, 4, indirect_block_base + offset, "Failed to read indirect block pointer\n");
+								int block_pointer = data.int32;
+								if(block_pointer != 0) {
+									fprintf(stdout, "INDIRECT,");
+
+									/* parent inode number */
+									fprintf(stdout, "%d,", i+1);
+
+									/* indirection level */
+									fprintf(stdout, "%d,", 1);
+
+									/* file offset */
+									fprintf(stdout, "%d,", 12+j);
+
+									/* block number of the indirect block being scanned */
+									fprintf(stdout, "%d,", indirect_block_address);
+
+									/* block number of the referenced block */
+									fprintf(stdout, "%d\n", block_pointer);
+								}
+							}
+						}
+					}
+				}
 			}
-
-
-			/* inode number */
-
-
-
 		}
 	}
 
@@ -278,15 +387,15 @@ int main(int argc, char **argv) {
 	return 0;
 }
 
-
 void check_rc(int expected, int actual, char *msg) {
 	if(actual < expected) {
-		fprintf(stderr, "%s", msg);
+		perror(msg);
 		exit(1);
 	}
 }
 
 void get_val(int fd, read_data_t *buff, int size, int offset, char *msg) {
+	memset(buff->bytes, 0, size);
 	int nbytes = pread(fd, buff->bytes, size, offset);
 	check_rc(size, nbytes, msg);
 }

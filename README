@@ -1,0 +1,22 @@
+NAME: Jesse Joseph
+EMAIL: jjoseph@hmc.edu
+ID: 040161840
+
+About this submission:
+ - I used one slip day.
+ - My program only scans singly indirect blocks. I don't have time to write it to scan 2x and 3x indirect blocks, but if lab3b 
+   is dependent on this, then I will fix it.
+ - I'm not entirely sure if my strategy for scanning directory entries is correct, but it works on the trivial example.
+   - this is probably the only place where the docs are unclear. I figured it wasn't safe to assume a dirent with a 0 inode meant
+	 	 that it is the last dirent, although that is the case in the example. Instead, I tried to scan the entire block, but assumed
+		 that the directory entries linkedlist wouldn't span multiple blocks, which I'm not sure is a safe assumption.
+
+Files:
+ - lab3a.c - c source module defining the program
+ - Makefile
+ - README
+ - lab3a-040161840.tar.gz
+
+Sources:
+ - http://www.nongnu.org/ext2-doc/ext2.html
+ 	 - the ext2 docs - all the info was here
