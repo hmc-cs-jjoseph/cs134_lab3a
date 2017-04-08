@@ -13,6 +13,10 @@ test: lab3a.c
 	make lab3a
 	./lab3a trivial.img
 
+test_full: lab3a.c
+	make lab3a
+	./lab3a EXT2_test.img
+
 clean:
 	-rm lab3a
 
