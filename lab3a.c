@@ -86,7 +86,7 @@ int main(int argc, char **argv) {
 		group_count = group_count + 1;
 	}
 	int group_descriptor_size = 32;
-	for(int i = 0; i < group_count; ++i) {
+	for(unsigned int i = 0; i < group_count; ++i) {
 		fprintf(stdout, "GROUP,");
 		group_descriptor_base = group_descriptor_table_base + i*group_descriptor_size;
 		/* group number */
@@ -139,8 +139,8 @@ int main(int argc, char **argv) {
 		unsigned int block_bitmap_bytes_size = blocks_in_this_group/8 + (blocks_in_this_group % 8 != 0);
 		get_val(fd, &data, block_bitmap_bytes_size, block_bitmap_bid*block_size, "Failed to read block bitmap\n");
 		int counter = 0;
-		for(int i = 0; i < block_bitmap_bytes_size; ++i) {
-			uint8_t bitmap_byte = data.bytes[i];
+		for(unsigned int k = 0; k < block_bitmap_bytes_size; ++k) {
+			uint8_t bitmap_byte = data.bytes[k];
 			for(int j = 0; j < 8; ++j) {
 				counter ++;
 				if(bitmap_byte % 2 == 0) {
@@ -154,8 +154,8 @@ int main(int argc, char **argv) {
 		unsigned int inode_bitmap_bytes_size = inodes_per_group/8 + (inodes_per_group % 8 != 0);
 		get_val(fd, &data, inode_bitmap_bytes_size, inode_bitmap_bid*block_size, "Failed to read block bitmap\n");
 		counter = 0;
-		for(int i = 0; i < inode_bitmap_bytes_size; ++i) {
-			uint8_t bitmap_byte = data.bytes[i];
+		for(unsigned int k = 0; k < inode_bitmap_bytes_size; ++k) {
+			uint8_t bitmap_byte = data.bytes[k];
 			for(int j = 0; j < 8; ++j) {
 				counter ++;
 				if(bitmap_byte % 2 == 0) {
@@ -166,8 +166,8 @@ int main(int argc, char **argv) {
 		}
 
 		/* INODE SUMMARY */
-		for(int i = 0; i < inodes_per_group; ++ i) {
-			unsigned int inode_base = inode_table_bid*block_size + i*inode_size;
+		for(unsigned int k = 0; k < inodes_per_group; ++ k) {
+			unsigned int inode_base = inode_table_bid*block_size + k*inode_size;
 
 			/* mode and link count */
 			offset = 0;
@@ -181,7 +181,7 @@ int main(int argc, char **argv) {
 				fprintf(stdout, "INODE,");
 
 				/* inode number */
-				fprintf(stdout, "%d,", i+1);
+				fprintf(stdout, "%d,", k+1);
 
 				/* file type */
 				char file_type;
@@ -317,7 +317,7 @@ int main(int argc, char **argv) {
 								fprintf(stdout, "DIRENT,");
 								
 								/* parent inode number */
-								fprintf(stdout, "%d,", i+1);
+								fprintf(stdout, "%d,", k+1);
 
 								/* byte offset of this entry */
 								fprintf(stdout, "%d,", dirent_base);
@@ -343,12 +343,12 @@ int main(int argc, char **argv) {
 				}
 				/* INDIRECT REFERENCES */
 				if(file_type == 'f' || file_type == 'd') {
-					for(int k = 0; k < 3; ++k){
+					for(int n = 0; n < 3; ++n){
 						/* singly indirect */
-						unsigned int indirect_block_address = block_addresses[12+k];
+						unsigned int indirect_block_address = block_addresses[12+n];
 						if(indirect_block_address != 0) {
 							unsigned int indirect_block_base = indirect_block_address*block_size;
-							for(int m = 0; m < block_size/4; ++m) {
+							for(unsigned int m = 0; m < block_size/4; ++m) {
 								unsigned int offset = m*4;
 								get_val(fd, &data, 4, indirect_block_base + offset, "Failed to read indirect block pointer\n");
 								unsigned int block_pointer = data.int32;
@@ -356,7 +356,7 @@ int main(int argc, char **argv) {
 									fprintf(stdout, "INDIRECT,");
 
 									/* parent inode number */
-									fprintf(stdout, "%d,", i+1);
+									fprintf(stdout, "%d,", k+1);
 
 									/* indirection level */
 									fprintf(stdout, "%d,", 1);
